@@ -101,6 +101,7 @@ another deployment with `VITE_CONTRACT_ID` (see `web/.env.example`).
 ## Documentation
 
 - [Architecture](docs/architecture.md)
+- [Testnet deployment](docs/deployment.md)
 - [Grant recipes](docs/grant-recipes.md)
 - [Contributing](CONTRIBUTING.md) · [Security policy](SECURITY.md) · [Changelog](CHANGELOG.md)
 

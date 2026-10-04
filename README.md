@@ -75,6 +75,12 @@ stellar contract invoke --id <VESTLINE> --source founder --network testnet -- \
   --start 1767225600 --cliff 31536000 --duration 126144000 --revocable true
 ```
 
+## Documentation
+
+- [Architecture](docs/architecture.md)
+- [Grant recipes](docs/grant-recipes.md)
+- [Contributing](CONTRIBUTING.md) · [Security policy](SECURITY.md) · [Changelog](CHANGELOG.md)
+
 ## Glossary (new to Stellar?)
 
 - **Vesting**: gradually giving someone full ownership of tokens over

@@ -31,7 +31,7 @@ export default function App() {
     <div className="min-h-screen">
       <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-6">
         <div className="flex items-center gap-3">
-          <img src="/favicon.svg" className="h-8 w-8" alt="" />
+          <img src={`${import.meta.env.BASE_URL}favicon.svg`} className="h-8 w-8" alt="" />
           <span className="font-serif text-2xl text-teal">Vestline</span>
         </div>
         <div className="flex items-center gap-3">

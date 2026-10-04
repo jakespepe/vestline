@@ -13,12 +13,16 @@
   --font-sans: "DM Sans", system-ui, sans-serif;
 }
 body { background: var(--color-sand); color: var(--color-ink); font-family: var(--font-sans); }
-.sheet { background: var(--color-paper); border: 1px solid var(--color-rule); border-radius: 6px; }
-.in { width: 100%; border: 0; border-bottom: 1.5px solid var(--color-rule); padding: .55rem .1rem; background: transparent; font-size: .95rem; }
-.in:focus { outline: none; border-color: var(--color-teal-2); }
-.b { padding: .6rem 1.15rem; border-radius: 4px; font-weight: 700; font-size: .85rem; letter-spacing: .01em; }
-.b:disabled { opacity: .45; cursor: not-allowed; }
-.b-teal { background: var(--color-teal); color: #fff; }
-.b-orange { background: var(--color-tangerine); color: #fff; }
-.b-line { border: 1.5px solid var(--color-teal); color: var(--color-teal); }
-.eyebrow { font-size: .7rem; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: var(--color-dim); }
+
+/* In the components layer so Tailwind utilities (w-*, etc.) can override these. */
+@layer components {
+  .sheet { background: var(--color-paper); border: 1px solid var(--color-rule); border-radius: 6px; }
+  .in { width: 100%; border: 0; border-bottom: 1.5px solid var(--color-rule); padding: .55rem .1rem; background: transparent; font-size: .95rem; }
+  .in:focus { outline: none; border-color: var(--color-teal-2); }
+  .b { padding: .6rem 1.15rem; border-radius: 4px; font-weight: 700; font-size: .85rem; letter-spacing: .01em; }
+  .b:disabled { opacity: .45; cursor: not-allowed; }
+  .b-teal { background: var(--color-teal); color: #fff; }
+  .b-orange { background: var(--color-tangerine); color: #fff; }
+  .b-line { border: 1.5px solid var(--color-teal); color: var(--color-teal); }
+  .eyebrow { font-size: .7rem; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: var(--color-dim); }
+}

@@ -75,6 +75,29 @@ stellar contract invoke --id <VESTLINE> --source founder --network testnet -- \
   --start 1767225600 --cliff 31536000 --duration 126144000 --revocable true
 ```
 
+## Web app
+
+![Vestline web app](docs/assets/web-app.png)
+
+A grant dashboard at `web/`:
+
+- **Vesting curve**: each grant plotted with its cliff, a live "today" marker and the claimed band; vested and claimable amounts tick up in real time using the contract's exact formula.
+- **Beneficiary actions**: claim what's vested, or move the grant to a new wallet.
+- **Grantor actions**: revoke a revocable grant, with a confirmation that spells out who gets what.
+- **New grant**: presets (employee 4y/1y cliff, advisor, investor lock-up, one-off bonus), any start date and asset, and a live preview curve before escrowing.
+- With a wallet connected, the list filters to grants where you're the grantor or beneficiary.
+
+```bash
+cd web
+npm install
+npm run dev        # http://localhost:5173
+```
+
+It talks to the contract deployed on **Stellar testnet** and signs with
+[Freighter](https://www.freighter.app) (switch it to Testnet). Point it at
+another deployment with `VITE_CONTRACT_ID` (see `web/.env.example`).
+`netlify.toml` at the repo root deploys it as-is.
+
 ## Documentation
 
 - [Architecture](docs/architecture.md)

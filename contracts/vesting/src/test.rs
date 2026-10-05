@@ -254,3 +254,76 @@ fn vesting_can_start_in_the_future() {
     at(&s, START + YEAR + YEAR / 2);
     assert_eq!(s.vesting.vested(&id), GRANT / 2);
 }
+
+#[test]
+fn huge_grants_vest_without_overflow() {
+    let s = setup();
+    let huge: i128 = i128::MAX / 4;
+    StellarAssetClient::new(&s.env, &s.token).mint(&s.grantor, &huge);
+    let id = s.vesting.create_schedule(
+        &s.grantor,
+        &s.employee,
+        &s.token,
+        &huge,
+        &START,
+        &0,
+        &(4 * YEAR),
+        &false,
+    );
+    at(&s, START + 2 * YEAR);
+    assert_eq!(s.vesting.vested(&id), huge / 2);
+    at(&s, START + 4 * YEAR);
+    assert_eq!(s.vesting.claim(&id), huge);
+}
+
+#[test]
+fn batch_creates_grants_and_pulls_the_total_once() {
+    use soroban_sdk::vec;
+    let s = setup();
+    let other = Address::generate(&s.env);
+    let grant = |who: &Address, total: i128| Grant {
+        beneficiary: who.clone(),
+        total,
+        start: START,
+        cliff: YEAR,
+        duration: 4 * YEAR,
+        revocable: true,
+    };
+    let ids = s.vesting.create_schedules(
+        &s.grantor,
+        &s.token,
+        &vec![&s.env, grant(&s.employee, GRANT), grant(&other, GRANT / 2)],
+    );
+    assert_eq!(ids, vec![&s.env, 1, 2]);
+    assert_eq!(s.vesting.schedule_count(), 2);
+    assert_eq!(
+        s.token_client.balance(&s.vesting.address),
+        GRANT + GRANT / 2
+    );
+    assert_eq!(s.vesting.get_schedule(&2).beneficiary, other);
+
+    // One bad grant rejects the whole batch.
+    assert_eq!(
+        s.vesting.try_create_schedules(
+            &s.grantor,
+            &s.token,
+            &vec![&s.env, grant(&s.employee, GRANT), grant(&other, 0)],
+        ),
+        Err(Ok(Error::InvalidSchedule))
+    );
+    assert_eq!(
+        s.vesting
+            .try_create_schedules(&s.grantor, &s.token, &Vec::new(&s.env)),
+        Err(Ok(Error::InvalidSchedule))
+    );
+}
+
+#[test]
+fn moving_a_grant_emits_an_event() {
+    use soroban_sdk::testutils::Events as _;
+    let s = setup();
+    let id = four_year_grant(&s, false);
+    let fresh = Address::generate(&s.env);
+    s.vesting.transfer_beneficiary(&id, &fresh);
+    assert_eq!(s.env.events().all().events().len(), 1);
+}

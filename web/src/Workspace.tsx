@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { StrKey } from "@stellar/stellar-sdk";
 import { Curve } from "./Curve";
-import { DAY, PRESETS, scanSchedules, vestedAt, vestline, type Schedule } from "./vesting";
+import { DAY, PRESETS, scanSchedules, scheduleCsv, vestedAt, vestline, type Schedule } from "./vesting";
 import { addr, bool, i128, txLink, u64, XLM_SAC } from "./lib/stellar";
 import { dateOf, fromUnits, short, toUnits } from "./lib/format";
 import { useWallet } from "./lib/useWallet";
@@ -112,6 +112,16 @@ function GrantDetail({ s, wallet, onChange }: { s: Schedule; wallet: Wallet; onC
   const unit = s.token === XLM_SAC ? "XLM" : short(s.token);
   const isBen = wallet.address === s.beneficiary;
   const isGrantor = wallet.address === s.grantor;
+  const cliffAt = Number(s.start + s.cliff);
+  const endAt = Number(s.start + s.duration);
+  const days = (secs: number) => Math.max(1, Math.ceil(secs / DAY));
+  const perDay = (s.total * BigInt(DAY)) / (s.duration || 1n);
+  const exportCsv = () => {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([scheduleCsv(s, (v) => fromUnits(v))], { type: "text/csv" }));
+    a.download = `grant-${s.id}-schedule.csv`;
+    a.click();
+  };
   const call = (label: string, method: string, args: Parameters<typeof vestline.invoke>[2], text: string) =>
     act.run(label, async () => {
       const r = await vestline.invoke(wallet.address!, method, args);
@@ -135,6 +145,17 @@ function GrantDetail({ s, wallet, onChange }: { s: Schedule; wallet: Wallet; onC
         <span>cliff {dateOf(s.start + s.cliff)}</span>
         <span>fully vested {dateOf(s.start + s.duration)}</span>
       </div>
+      {!s.revoked && (
+        <p className="mt-4 rounded bg-sand px-4 py-3 text-sm text-ink">
+          {now < Number(s.start)
+            ? `Vesting starts in ${days(Number(s.start) - now)} days (${dateOf(s.start)}).`
+            : now < cliffAt
+              ? `Cliff in ${days(cliffAt - now)} days (${dateOf(cliffAt)}): ${fromUnits(vestedAt(s, cliffAt))} ${unit} unlocks then.`
+              : now < endAt
+                ? `Vesting about ${fromUnits(perDay)} ${unit} per day until ${dateOf(endAt)}.`
+                : "Fully vested."}
+        </p>
+      )}
       <dl className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
         {[
           ["Total", s.total],
@@ -168,6 +189,9 @@ function GrantDetail({ s, wallet, onChange }: { s: Schedule; wallet: Wallet; onC
             Revoke grant
           </button>
         )}
+        <button className="b b-line" onClick={exportCsv}>
+          Download schedule (CSV)
+        </button>
         {!wallet.address && <p className="text-sm text-dim">Connect the beneficiary's wallet to claim.</p>}
       </div>
       {isBen && !s.revoked && (
@@ -224,7 +248,9 @@ function CreateGrant({ wallet, onCreated }: { wallet: Wallet; onCreated: (id: bi
       duration: BigInt(Math.round(years * 31_536_000)),
     };
   }, [amount, startDate, cliffDays, years]);
-
+  // A start more than a day ago means part of the grant is vested on creation.
+  const nowSecs = Math.floor(Date.now() / 1000);
+  const backdated = Number(preview.start) < nowSecs - DAY ? vestedAt(preview, nowSecs) : 0n;
   return (
     <form
       className="grid gap-8 lg:grid-cols-[1fr_1.2fr]"
@@ -237,6 +263,8 @@ function CreateGrant({ wallet, onCreated }: { wallet: Wallet; onCreated: (id: bi
           async () => {
             if (!StrKey.isValidEd25519PublicKey(beneficiary)) throw new Error("Enter the beneficiary's G… address.");
             if (preview.cliff > preview.duration) throw new Error("The cliff can't be longer than the whole schedule.");
+            if (backdated && !confirm(`This grant starts in the past, so ${fromUnits(backdated)} is claimable as soon as it's created. Create it anyway?`))
+              throw new Error("Cancelled: adjust the start date.");
             return vestline.invoke<bigint>(me, "create_schedule", [
               addr(me),
               addr(beneficiary),
@@ -284,6 +312,11 @@ function CreateGrant({ wallet, onCreated }: { wallet: Wallet; onCreated: (id: bi
             <input className="in" type="number" min="0.1" step="0.5" value={years} onChange={(e) => setYears(Number(e.target.value))} />
           </label>
         </div>
+        {backdated > 0n && (
+          <p className="rounded bg-tangerine/10 px-3 py-2 text-sm text-tangerine">
+            Start date is in the past: {fromUnits(backdated)} would be claimable immediately.
+          </p>
+        )}
         <label className="block text-sm text-dim">
           Asset contract
           <input className="in font-mono text-xs" value={token} onChange={(e) => setToken(e.target.value.trim())} />

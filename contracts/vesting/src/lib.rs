@@ -25,8 +25,27 @@
 //! tokens can never be clawed back.
 
 use soroban_sdk::{
-    contract, contracterror, contractevent, contractimpl, contracttype, token, Address, Env,
+    contract, contracterror, contractevent, contractimpl, contracttype, token, Address, Env, Vec,
 };
+
+/// Most grants `create_schedules` accepts in one call.
+pub const MAX_BATCH: u32 = 20;
+
+/// Longest schedule accepted (200 years). Keeps every intermediate value in
+/// the vesting maths far inside i128.
+pub const MAX_DURATION: u64 = 200 * 365 * 86_400;
+
+/// One grant in a `create_schedules` batch.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Grant {
+    pub beneficiary: Address,
+    pub total: i128,
+    pub start: u64,
+    pub cliff: u64,
+    pub duration: u64,
+    pub revocable: bool,
+}
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -82,6 +101,15 @@ pub struct Claimed {
     pub amount: i128,
 }
 
+#[contractevent(topics = ["vest", "moved"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BeneficiaryChanged {
+    #[topic]
+    pub schedule_id: u64,
+    pub from: Address,
+    pub to: Address,
+}
+
 #[contractevent(topics = ["vest", "revoked"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Revoked {
@@ -114,38 +142,44 @@ impl Vesting {
         revocable: bool,
     ) -> Result<u64, Error> {
         grantor.require_auth();
-        if total <= 0 || duration == 0 || cliff > duration || grantor == beneficiary {
-            return Err(Error::InvalidSchedule);
-        }
-        start.checked_add(duration).ok_or(Error::InvalidSchedule)?;
-
-        token::Client::new(&env, &token).transfer(&grantor, env.current_contract_address(), &total);
-
-        let id = next_id(&env);
-        let schedule = Schedule {
-            id,
-            grantor,
-            beneficiary: beneficiary.clone(),
-            token,
+        let grant = Grant {
+            beneficiary,
             total,
             start,
             cliff,
             duration,
-            claimed: 0,
             revocable,
-            revoked: false,
         };
-        save(&env, &schedule);
-        Created {
-            schedule_id: id,
-            beneficiary,
-            total,
-        }
-        .publish(&env);
-        Ok(id)
+        check(&grantor, &grant)?;
+        token::Client::new(&env, &token).transfer(&grantor, env.current_contract_address(), &total);
+        Ok(insert(&env, &grantor, &token, grant))
     }
 
-    /// Pay the beneficiary everything vested and not yet claimed.
+    /// Create up to `MAX_BATCH` grants in one call, pulling the combined total
+    /// from the grantor once. Returns the new schedule ids in order.
+    pub fn create_schedules(
+        env: Env,
+        grantor: Address,
+        token: Address,
+        grants: Vec<Grant>,
+    ) -> Result<Vec<u64>, Error> {
+        grantor.require_auth();
+        if grants.is_empty() || grants.len() > MAX_BATCH {
+            return Err(Error::InvalidSchedule);
+        }
+        let mut sum: i128 = 0;
+        for g in grants.iter() {
+            check(&grantor, &g)?;
+            sum = sum.checked_add(g.total).ok_or(Error::InvalidSchedule)?;
+        }
+        token::Client::new(&env, &token).transfer(&grantor, env.current_contract_address(), &sum);
+        let mut ids = Vec::new(&env);
+        for g in grants.iter() {
+            ids.push_back(insert(&env, &grantor, &token, g));
+        }
+        Ok(ids)
+    }
+
     pub fn claim(env: Env, schedule_id: u64) -> Result<i128, Error> {
         let mut schedule = Self::get_schedule(env.clone(), schedule_id)?;
         schedule.beneficiary.require_auth();
@@ -218,8 +252,15 @@ impl Vesting {
         if new_beneficiary == schedule.grantor {
             return Err(Error::InvalidSchedule);
         }
-        schedule.beneficiary = new_beneficiary;
+        let from = schedule.beneficiary.clone();
+        schedule.beneficiary = new_beneficiary.clone();
         save(&env, &schedule);
+        BeneficiaryChanged {
+            schedule_id,
+            from,
+            to: new_beneficiary,
+        }
+        .publish(&env);
         Ok(())
     }
 
@@ -236,6 +277,11 @@ impl Vesting {
     pub fn claimable(env: Env, schedule_id: u64) -> Result<i128, Error> {
         let schedule = Self::get_schedule(env.clone(), schedule_id)?;
         Ok(claimable(&env, &schedule))
+    }
+
+    /// Number of schedules ever created; ids run from 1 to this value.
+    pub fn schedule_count(env: Env) -> u64 {
+        env.storage().instance().get(&DataKey::NextId).unwrap_or(0)
     }
 
     pub fn get_schedule(env: Env, schedule_id: u64) -> Result<Schedule, Error> {
@@ -255,7 +301,12 @@ pub fn vested_amount(s: &Schedule, now: u64) -> i128 {
     if elapsed >= s.duration {
         return s.total;
     }
-    s.total * (elapsed as i128) / (s.duration as i128)
+    // total * elapsed / duration without overflowing: split total into
+    // q * duration + r, so the product only ever involves r < duration.
+    let duration = s.duration as i128;
+    let elapsed = elapsed as i128;
+    let (q, r) = (s.total / duration, s.total % duration);
+    q * elapsed + r * elapsed / duration
 }
 
 fn claimable(env: &Env, s: &Schedule) -> i128 {
@@ -265,12 +316,54 @@ fn claimable(env: &Env, s: &Schedule) -> i128 {
     vested_amount(s, env.ledger().timestamp()) - s.claimed
 }
 
+fn check(grantor: &Address, g: &Grant) -> Result<(), Error> {
+    if g.total <= 0
+        || g.duration == 0
+        || g.duration > MAX_DURATION
+        || g.cliff > g.duration
+        || *grantor == g.beneficiary
+    {
+        return Err(Error::InvalidSchedule);
+    }
+    g.start
+        .checked_add(g.duration)
+        .ok_or(Error::InvalidSchedule)?;
+    Ok(())
+}
+
+fn insert(env: &Env, grantor: &Address, token: &Address, g: Grant) -> u64 {
+    let id = next_id(env);
+    let schedule = Schedule {
+        id,
+        grantor: grantor.clone(),
+        beneficiary: g.beneficiary.clone(),
+        token: token.clone(),
+        total: g.total,
+        start: g.start,
+        cliff: g.cliff,
+        duration: g.duration,
+        claimed: 0,
+        revocable: g.revocable,
+        revoked: false,
+    };
+    save(env, &schedule);
+    Created {
+        schedule_id: id,
+        beneficiary: g.beneficiary,
+        total: g.total,
+    }
+    .publish(env);
+    id
+}
+
 fn save(env: &Env, schedule: &Schedule) {
     let key = DataKey::Schedule(schedule.id);
     env.storage().persistent().set(&key, schedule);
     env.storage()
         .persistent()
         .extend_ttl(&key, BUMP_THRESHOLD, BUMP_TO);
+    // The instance holds the id counter; keep it alive on every write.
+    env.storage().instance().extend_ttl(BUMP_THRESHOLD, BUMP_TO);
 }
 
 fn next_id(env: &Env) -> u64 {

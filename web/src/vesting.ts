@@ -37,16 +37,53 @@ export function vestedAt(s: Pick<Schedule, "total" | "start" | "cliff" | "durati
   return (s.total * BigInt(Math.floor(elapsed))) / s.duration;
 }
 
-export async function scanSchedules(max = 80): Promise<Schedule[]> {
+const getSchedule = (id: number) => vestline.read<Schedule>("get_schedule", [u64(id)]);
+
+/**
+ * All schedules. Uses schedule_count with parallel batches when the contract
+ * has it; older deployments fall back to probing ids until the first gap.
+ */
+export async function scanSchedules(batch = 10): Promise<Schedule[]> {
   const out: Schedule[] = [];
-  for (let id = 1; id <= max; id++) {
+  let count: number | null = null;
+  try {
+    count = Number(await vestline.read<bigint>("schedule_count"));
+  } catch {
+    count = null;
+  }
+  if (count !== null) {
+    for (let start = 1; start <= count; start += batch) {
+      const ids = Array.from({ length: Math.min(batch, count - start + 1) }, (_, i) => start + i);
+      const got = await Promise.allSettled(ids.map(getSchedule));
+      for (const r of got) if (r.status === "fulfilled") out.push(r.value);
+    }
+    return out;
+  }
+  for (let id = 1; ; id++) {
     try {
-      out.push(await vestline.read<Schedule>("get_schedule", [u64(id)]));
+      out.push(await getSchedule(id));
     } catch {
       break;
     }
   }
   return out;
+}
+
+/** Month-by-month vesting table as CSV (one row per month plus the final date). */
+export function scheduleCsv(s: Pick<Schedule, "id" | "total" | "start" | "cliff" | "duration">, fmt: (v: bigint) => string): string {
+  const rows = ["date,vested,unvested"];
+  const start = Number(s.start);
+  const end = start + Number(s.duration);
+  const d = new Date(start * 1000);
+  for (;;) {
+    const t = Math.floor(d.getTime() / 1000);
+    if (t >= end) break;
+    const vested = vestedAt(s, t);
+    rows.push(`${d.toISOString().slice(0, 10)},${fmt(vested)},${fmt(s.total - vested)}`);
+    d.setUTCMonth(d.getUTCMonth() + 1);
+  }
+  rows.push(`${new Date(end * 1000).toISOString().slice(0, 10)},${fmt(s.total)},${fmt(0n)}`);
+  return rows.join("\n") + "\n";
 }
 
 export const PRESETS: { name: string; cliff: number; duration: number; revocable: boolean }[] = [

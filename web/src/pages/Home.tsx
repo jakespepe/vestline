@@ -5,10 +5,11 @@ import { fromUnits } from "../lib/format";
 import { Link, useTitle } from "../lib/router";
 
 export function Home() {
+  const [failed, setFailed] = useState(false);
   useTitle("Vestline · token vesting with cliffs, enforced on-chain");
   const [grants, setGrants] = useState<Schedule[] | null>(null);
   useEffect(() => {
-    scanSchedules().then(setGrants).catch(() => setGrants([]));
+    scanSchedules().then(setGrants).catch(() => setFailed(true));
   }, []);
   const xlm = (grants ?? []).filter((g) => g.token === XLM_SAC);
   const now = Date.now() / 1000;
@@ -36,6 +37,14 @@ export function Home() {
               </div>
             ))}
           </dl>
+          {failed && (
+            <p className="mt-6 text-sm opacity-80" role="status">
+              Couldn’t reach Stellar testnet, so live numbers aren’t shown.{" "}
+              <button className="font-semibold underline" onClick={() => window.location.reload()}>
+                Retry
+              </button>
+            </p>
+          )}
         </div>
         <div className="sheet p-7">
           <p className="eyebrow">A typical grant</p>

@@ -47,7 +47,7 @@ export function Workspace({ wallet }: { wallet: Wallet }) {
         </p>
       </section>
 
-      <main className="mx-auto max-w-6xl px-6 pb-16">
+      <div className="mx-auto max-w-6xl px-6 pb-16">
         {creating ? (
           <CreateGrant wallet={wallet} onCreated={(id) => (refresh(), setSelected(id), setCreating(false))} />
         ) : (
@@ -77,7 +77,7 @@ export function Workspace({ wallet }: { wallet: Wallet }) {
             {current ? <GrantDetail s={current} wallet={wallet} onChange={refresh} /> : <div className="sheet p-10 text-dim">Select a grant.</div>}
           </div>
         )}
-      </main>
+      </div>
 
     </div>
   );

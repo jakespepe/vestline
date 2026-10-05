@@ -41,11 +41,12 @@ year 4.
 
 | Function | Who signs | Notes |
 | --- | --- | --- |
-| `create_schedule(grantor, beneficiary, token, total, start, cliff, duration, revocable)` | grantor | Escrows `total`; `cliff ≤ duration` |
+| `create_schedule(grantor, beneficiary, token, total, start, cliff, duration, revocable)` | grantor | Escrows `total`; `cliff ≤ duration ≤ 200 years` |
+| `create_schedules(grantor, token, grants)` | grantor | Up to 20 grants in one call; pulls the combined total once |
 | `claim(schedule_id)` | beneficiary | Returns the amount paid |
 | `revoke(schedule_id)` | grantor | Revocable grants only, once |
 | `transfer_beneficiary(schedule_id, new_beneficiary)` | beneficiary | |
-| `vested`, `claimable`, `get_schedule` | anyone | Read state |
+| `vested`, `claimable`, `get_schedule`, `schedule_count` | anyone | Read state |
 
 `start` is a Unix timestamp; `cliff` and `duration` are in seconds after
 `start`.
@@ -60,7 +61,7 @@ Events: `("vest","created", id)`, `("vest","claimed", id)`,
 
 ```bash
 cd contracts
-cargo test           # 13 unit tests
+cargo test           # 16 unit tests
 stellar contract build
 stellar contract deploy --wasm target/wasm32v1-none/release/vesting.wasm \
   --source me --network testnet
@@ -78,6 +79,10 @@ stellar contract invoke --id <VESTLINE> --source founder --network testnet -- \
 ## Web app
 
 ![Vestline web app](docs/assets/web-app.png)
+
+The site has three pages: **Home** (what it does, with live testnet data), **App** (the tool itself) and **Docs** (getting started, concepts, reference and FAQ).
+
+![vestline app page](docs/assets/web-app-page.png)
 
 A grant dashboard at `web/`:
 

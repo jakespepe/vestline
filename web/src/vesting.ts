@@ -45,12 +45,7 @@ const getSchedule = (id: number) => vestline.read<Schedule>("get_schedule", [u64
  */
 export async function scanSchedules(batch = 10): Promise<Schedule[]> {
   const out: Schedule[] = [];
-  let count: number | null = null;
-  try {
-    count = Number(await vestline.read<bigint>("schedule_count"));
-  } catch {
-    count = null;
-  }
+  const count = await vestline.read<bigint>("schedule_count").then(Number, () => null);
   if (count !== null) {
     for (let start = 1; start <= count; start += batch) {
       const ids = Array.from({ length: Math.min(batch, count - start + 1) }, (_, i) => start + i);
